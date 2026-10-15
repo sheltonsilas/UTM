@@ -79,6 +79,15 @@ jobs:
           pip3 install --break-system-packages --user six pyparsing pyyaml setuptools distlib mako
           rm -f /usr/local/lib/pkgconfig/*.pc
 
+      # gstreamer.freedesktop.org closes HTTP/2 streams mid-download from GitHub's macOS runners
+      # (curl error 92, "HTTP/2 stream was not closed cleanly"), which aborts the dependency build after
+      # five retries. Forcing HTTP/1.1 for every curl in the build fixes it without patching upstream's
+      # script. Recorded in docs/DECISIONS.md as decision 0014.
+      - name: Make the source downloads use HTTP/1.1
+        run: |
+          printf 'http1.1\nretry = 3\nretry-delay = 5\n' > "$HOME/.curlrc"
+          cat "$HOME/.curlrc"
+
       - name: Build dependencies
         if: steps.cache-sysroot.outputs.cache-matched-key == ''
         env:
