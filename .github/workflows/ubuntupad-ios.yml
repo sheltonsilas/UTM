@@ -33,11 +33,9 @@ on:
         description: 'GitHub-hosted runner label'
         required: true
         default: 'macos-15'
-  push:
-    branches:
-      - ubuntupad-ci
-    paths:
-      - '.github/workflows/ubuntupad-ios.yml'
+  # Dispatch only, deliberately: every run of this workflow builds QEMU for iOS from scratch when the
+  # cache is cold, which is tens of minutes of runner time. Syncing the file must not start one, and a
+  # push trigger would also race the cache with a simultaneous dispatch.
 
 permissions:
   contents: write
