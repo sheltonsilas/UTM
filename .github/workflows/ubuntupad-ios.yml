@@ -33,6 +33,10 @@ on:
         description: 'Optional normal release tag (e.g. v0.2.0); leave blank to build only'
         required: false
         default: ''
+      ios_deployment_target:
+        description: 'Minimum iOS version (UTM project currently defaults to 26.0; override for this device build)'
+        required: true
+        default: '15.0'
       runner:
         description: 'GitHub-hosted runner label'
         required: true
@@ -222,7 +226,9 @@ jobs:
           du -sh "sysroot-${{ env.PLATFORM }}-${{ env.ARCH }}"
 
       - name: Build the iOS app (signing disabled)
-        run: ./scripts/build_utm.sh -k iphoneos -s "$SCHEME" -a "$ARCH" -o UTM
+        env:
+          IOS_DEPLOYMENT_TARGET: ${{ inputs.ios_deployment_target || '15.0' }}
+        run: ./scripts/build_utm.sh -k iphoneos -s "$SCHEME" -a "$ARCH" -o UTM IPHONEOS_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET"
 
       - name: Package the unsigned IPA
         run: |
