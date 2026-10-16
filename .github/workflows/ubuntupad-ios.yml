@@ -33,10 +33,6 @@ on:
         description: 'Optional normal release tag (e.g. v0.2.0); leave blank to build only'
         required: false
         default: ''
-      ios_deployment_target:
-        description: 'Minimum iOS version (UTM project currently defaults to 26.0; override for this device build)'
-        required: true
-        default: '15.0'
       runner:
         description: 'GitHub-hosted runner label'
         required: true
@@ -64,9 +60,14 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Report toolchain and disk
+      - name: Select Xcode 27 and report toolchain and disk
         run: |
+          set -euo pipefail
+          xcode27=$(find /Applications -maxdepth 1 -name 'Xcode_27*.app' -print -quit)
+          test -n "$xcode27" || { echo '::error::Xcode 27 SDK is required for this UTM revision'; exit 1; }
+          sudo xcode-select -s "$xcode27/Contents/Developer"
           xcodebuild -version
+          xcode-select -p
           df -h /
           sysctl -n hw.ncpu
           sysctl -n hw.memsize
@@ -226,16 +227,7 @@ jobs:
           du -sh "sysroot-${{ env.PLATFORM }}-${{ env.ARCH }}"
 
       - name: Build the iOS app (signing disabled)
-        env:
-          IOS_DEPLOYMENT_TARGET: ${{ inputs.ios_deployment_target || '15.0' }}
-        run: |
-          set -euo pipefail
-          ./scripts/build_utm.sh -k iphoneos -s "$SCHEME" -a "$ARCH" -o UTM
-          xcodebuild -project UTM.xcodeproj -scheme "$SCHEME" -configuration Release \
-            -destination 'generic/platform=iOS' \
-            IPHONEOS_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
-            CODE_SIGNING_ALLOWED=NO ARCHS="$ARCH" -derivedDataPath "$RUNNER_TEMP/utm-deployment-override" \
-            build
+        run: ./scripts/build_utm.sh -k iphoneos -s "$SCHEME" -a "$ARCH" -o UTM
 
       - name: Package the unsigned IPA
         run: |
