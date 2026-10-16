@@ -36,11 +36,11 @@ on:
       runner:
         description: 'GitHub-hosted runner label'
         required: true
-        default: 'macos-26'
+        default: 'xcode-27'
 env:
   # Upstream UTM selects Xcode through HOST_XCODE_PATH. macos-26 defaults to Xcode 26.6, which
   # cannot compile the iOS 27 SDK APIs used by this pinned UTM source.
-  BUILD_XCODE_PATH: ${{ vars.HOST_XCODE_PATH || '/Applications/Xcode.app' }}
+  BUILD_XCODE_PATH: ${{ vars.HOST_XCODE_PATH || '/Applications/Xcode_27.1.app' }}
 
   # Dispatch only, deliberately: every run of this workflow builds QEMU for iOS from scratch when the
   # cache is cold, which is tens of minutes of runner time. Syncing the file must not start one, and a
@@ -52,7 +52,7 @@ permissions:
 jobs:
   sysroot:
     name: Build iOS arm64 sysroot
-    runs-on: ${{ inputs.runner || 'macos-26' }}
+    runs-on: ${{ inputs.runner || 'xcode-27' }}
     timeout-minutes: 330
     env:
       PLATFORM: ${{ inputs.platform || 'ios' }}
@@ -191,9 +191,9 @@ jobs:
   build-ipa:
     name: Build unsigned IPA
     needs: sysroot
-    # This runner defaults to Xcode 26.6, but the pinned UTM app uses iOS 27 SDK APIs.
-    # Match upstream's HOST_XCODE_PATH selection so the IPA is compiled against the right SDK.
-    runs-on: ${{ inputs.runner || 'macos-26' }}
+    # Use the xcode-27 hosted image, matching upstream's successful build configuration.
+    # macos-26 selects Xcode 26.6, which cannot compile the iOS 27 SDK APIs in this source.
+    runs-on: ${{ inputs.runner || 'xcode-27' }}
     timeout-minutes: 120
     env:
       PLATFORM: ${{ inputs.platform || 'ios' }}
