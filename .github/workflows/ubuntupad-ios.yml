@@ -29,6 +29,10 @@ on:
         description: 'package.sh mode: ipa | ipa-hv | ipa-se'
         required: true
         default: 'ipa'
+      release_tag:
+        description: 'Optional normal release tag (e.g. v0.2.0); leave blank to build only'
+        required: false
+        default: ''
       runner:
         description: 'GitHub-hosted runner label'
         required: true
@@ -76,6 +80,14 @@ jobs:
           brew install bison pkg-config gettext glib-utils libgpg-error nasm make meson cmake llvm spirv-llvm-translator libxcb libxrandr
           pip3 install --break-system-packages --user six pyparsing pyyaml setuptools distlib mako
           rm -f /usr/local/lib/pkgconfig/*.pc
+
+      # gstreamer.freedesktop.org is one unreliable dependency host. The fork's last build got past
+      # the GStreamer downloads; Mesa then failed because Homebrew supplied spirv-llvm-translator,
+      # but not its separate SPIRV-Tools dependency. Install the matching tool explicitly rather than
+      # retrying the same deterministic missing-dependency failure. See decision 0022.
+      - name: Install SPIRV-Tools required by Mesa
+        if: steps.cache-sysroot.outputs.cache-matched-key == ''
+        run: brew install spirv-tools
 
       # gstreamer.freedesktop.org is the one host this build cannot rely on from a GitHub runner. Its
       # three symptoms, all seen in this project's own logs: it closes HTTP/2 streams mid-download
@@ -250,7 +262,27 @@ jobs:
             dist/UTM-unsigned.ipa
             dist/UTM-unsigned.ipa.sha256
 
+      - name: Publish normal tagged release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          notes="UbuntuPad Track A unsigned iOS IPA built from UTM commit ${{ github.sha }}. Built by UbuntuPad CI (macOS $(sw_vers -productVersion), $(xcodebuild -version | head -n1)). Unsigned: no Apple account, certificate or provisioning profile was used."
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Release $RELEASE_TAG already exists; refusing to replace a published release"
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            --title "UbuntuPad — Ubuntu on iPad" \
+            --notes "$notes" \
+            --target "${{ github.sha }}" \
+            dist/UTM-unsigned.ipa dist/UTM-unsigned.ipa.sha256
+          gh release view "$RELEASE_TAG" --json url,assets --jq '.url'
+
       - name: Publish to the rolling ios-nightly release
+        if: inputs.release_tag == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
