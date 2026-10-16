@@ -65,9 +65,7 @@ jobs:
       - name: Select Xcode 27 and report toolchain and disk
         run: |
           set -euo pipefail
-          xcode27=$(find /Applications -maxdepth 1 -name 'Xcode_27*.app' -print -quit)
-          test -n "$xcode27" || { echo '::error::Xcode 27 SDK is required for this UTM revision'; exit 1; }
-          sudo xcode-select -s "$xcode27/Contents/Developer"
+          sudo xcode-select -s "$BUILD_XCODE_PATH"
           xcodebuild -version
           xcode-select -p
           df -h /
@@ -210,9 +208,7 @@ jobs:
       - name: Select Xcode 27
         run: |
           set -euo pipefail
-          xcode27=$(find /Applications -maxdepth 1 -name 'Xcode_27*.app' -print -quit)
-          test -n "$xcode27" || { echo '::error::Xcode 27 SDK is required for this UTM revision'; exit 1; }
-          sudo xcode-select -s "$xcode27/Contents/Developer"
+          sudo xcode-select -s "$BUILD_XCODE_PATH"
           xcodebuild -version
           xcode-select -p
 
