@@ -228,7 +228,14 @@ jobs:
       - name: Build the iOS app (signing disabled)
         env:
           IOS_DEPLOYMENT_TARGET: ${{ inputs.ios_deployment_target || '15.0' }}
-        run: ./scripts/build_utm.sh -k iphoneos -s "$SCHEME" -a "$ARCH" -o UTM IPHONEOS_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET"
+        run: |
+          set -euo pipefail
+          ./scripts/build_utm.sh -k iphoneos -s "$SCHEME" -a "$ARCH" -o UTM
+          xcodebuild -project UTM.xcodeproj -scheme "$SCHEME" -configuration Release \
+            -destination 'generic/platform=iOS' \
+            IPHONEOS_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
+            CODE_SIGNING_ALLOWED=NO ARCHS="$ARCH" -derivedDataPath "$RUNNER_TEMP/utm-deployment-override" \
+            build
 
       - name: Package the unsigned IPA
         run: |
