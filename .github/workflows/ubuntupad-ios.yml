@@ -36,7 +36,7 @@ on:
       runner:
         description: 'GitHub-hosted runner label'
         required: true
-        default: 'macos-15'
+        default: 'macos-26'
   # Dispatch only, deliberately: every run of this workflow builds QEMU for iOS from scratch when the
   # cache is cold, which is tens of minutes of runner time. Syncing the file must not start one, and a
   # push trigger would also race the cache with a simultaneous dispatch.
@@ -47,9 +47,10 @@ permissions:
 jobs:
   sysroot:
     name: Build iOS arm64 sysroot
-    # macos-15 is pinned deliberately: upstream defaults to macos-26, and a silent image change
-    # would change the Xcode version under us (same reasoning as UbuntuPad decision 0009).
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    # The pinned UTM revision builds Mesa's kosmickrisp Metal 4 path, which includes MTL4ArgumentTable.
+    # That API is absent from the macOS 15 SDK. Match UTM's current hosted-runner default so the SDK
+    # provides the headers the pinned GPU backend requires; the image version is still logged below.
+    runs-on: ${{ inputs.runner || 'macos-26' }}
     timeout-minutes: 330
     env:
       PLATFORM: ${{ inputs.platform || 'ios' }}
@@ -185,7 +186,7 @@ jobs:
   build-ipa:
     name: Build unsigned IPA
     needs: sysroot
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    runs-on: ${{ inputs.runner || 'macos-26' }}
     timeout-minutes: 120
     env:
       PLATFORM: ${{ inputs.platform || 'ios' }}
