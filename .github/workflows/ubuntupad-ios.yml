@@ -37,6 +37,11 @@ on:
         description: 'GitHub-hosted runner label'
         required: true
         default: 'macos-26'
+env:
+  # Upstream UTM selects Xcode through HOST_XCODE_PATH. macos-26 defaults to Xcode 26.6, which
+  # cannot compile the iOS 27 SDK APIs used by this pinned UTM source.
+  BUILD_XCODE_PATH: ${{ vars.HOST_XCODE_PATH || '/Applications/Xcode.app' }}
+
   # Dispatch only, deliberately: every run of this workflow builds QEMU for iOS from scratch when the
   # cache is cold, which is tens of minutes of runner time. Syncing the file must not start one, and a
   # push trigger would also race the cache with a simultaneous dispatch.
@@ -47,9 +52,6 @@ permissions:
 jobs:
   sysroot:
     name: Build iOS arm64 sysroot
-    # The pinned UTM revision builds Mesa's kosmickrisp Metal 4 path, which includes MTL4ArgumentTable.
-    # That API is absent from the macOS 15 SDK. Match UTM's current hosted-runner default so the SDK
-    # provides the headers the pinned GPU backend requires; the image version is still logged below.
     runs-on: ${{ inputs.runner || 'macos-26' }}
     timeout-minutes: 330
     env:
@@ -191,6 +193,8 @@ jobs:
   build-ipa:
     name: Build unsigned IPA
     needs: sysroot
+    # This runner defaults to Xcode 26.6, but the pinned UTM app uses iOS 27 SDK APIs.
+    # Match upstream's HOST_XCODE_PATH selection so the IPA is compiled against the right SDK.
     runs-on: ${{ inputs.runner || 'macos-26' }}
     timeout-minutes: 120
     env:
@@ -202,6 +206,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Select Xcode 27
+        run: |
+          set -euo pipefail
+          xcode27=$(find /Applications -maxdepth 1 -name 'Xcode_27*.app' -print -quit)
+          test -n "$xcode27" || { echo '::error::Xcode 27 SDK is required for this UTM revision'; exit 1; }
+          sudo xcode-select -s "$xcode27/Contents/Developer"
+          xcodebuild -version
+          xcode-select -p
 
       - name: Restore cached sysroot
         id: cache-sysroot
