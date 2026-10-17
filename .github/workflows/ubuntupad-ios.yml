@@ -239,39 +239,77 @@ jobs:
           }
           du -sh "sysroot-${{ env.PLATFORM }}-${{ env.ARCH }}"
 
+      - name: Set the existing UbuntuPad identifier and update version
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          project = Path('UTM.xcodeproj/project.pbxproj')
+          text = project.read_text()
+          old_app = 'PRODUCT_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_PREFIX:default=com.utmapp).UTM";'
+          old_host = 'UTM_HOST_BUNDLE_IDENTIFIER = "$(PRODUCT_BUNDLE_PREFIX:default=com.utmapp).UTM";'
+          app_id = 'PRODUCT_BUNDLE_IDENTIFIER = "dev.sheltonsilas.UbuntuPad";'
+          host_id = 'UTM_HOST_BUNDLE_IDENTIFIER = "dev.sheltonsilas.UbuntuPad";'
+          app_count = text.count(old_app)
+          host_count = text.count(old_host)
+          if app_count < 2 or host_count < 2:
+              raise SystemExit(f'unexpected UTM app identifier settings: app={app_count}, host={host_count}')
+          project.write_text(text.replace(old_app, app_id).replace(old_host, host_id))
+          info = Path('Platform/iOS/Info.plist')
+          info_text = info.read_text()
+          if '$(CURRENT_PROJECT_VERSION)' not in info_text or '$(MARKETING_VERSION)' not in info_text:
+              raise SystemExit('expected UTM Info.plist to use Xcode version build settings')
+          info.write_text(info_text.replace('$(CURRENT_PROJECT_VERSION)', '2').replace('$(MARKETING_VERSION)', '0.2.1'))
+          print(f'Configured app and embedded-helper identity; app settings={app_count}, helper settings={host_count}')
+          PY
+
+
       - name: Build the iOS app (signing disabled)
         run: ./scripts/build_utm.sh -k iphoneos -s "$SCHEME" -a "$ARCH" -o UTM
 
-      - name: Package the unsigned IPA
-        run: |
-          brew install ldid
-          mkdir -p dist
-          ./scripts/package.sh "$PACKAGE_MODE" UTM.xcarchive dist
-          ls -la dist
-
-      - name: Verify the IPA and write a checksum
+      - name: Verify the archived app identifier and version
         run: |
           set -euo pipefail
-          ipa=$(ls dist/*.ipa | head -n1)
-          echo "IPA: $ipa"
-          unzip -l "$ipa" | head -40
-          rm -rf /tmp/verify && mkdir -p /tmp/verify
+          app=$(find UTM.xcarchive -path '*/Products/Applications/*.app' -type d | head -n1)
+          test -n "$app"
+          identifier=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")
+          build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")
+          test "$identifier" = "dev.sheltonsilas.UbuntuPad" || { echo "::error::Wrong archive ID: $identifier"; exit 1; }
+          test "$version" = "0.2.1" && test "$build" = "2" || { echo "::error::Wrong update version: $version ($build)"; exit 1; }
+          echo "Verified archive identity $identifier version $version ($build)"
+
+      - name: Package and verify unsigned IPA
+        run: |
+          set -euo pipefail
+          brew install ldid
+          mkdir -p dist /tmp/verify
+          ./scripts/package.sh "$PACKAGE_MODE" UTM.xcarchive dist
+          ipa=$(find dist -maxdepth 1 -name '*.ipa' -print -quit)
+          test -s "$ipa"
+          unzip -tq "$ipa"
           unzip -q "$ipa" -d /tmp/verify
-          app=$(find /tmp/verify/Payload -maxdepth 1 -name '*.app' | head -n1)
-          echo "app bundle: $app"
-          plutil -p "$app/Info.plist" | egrep 'CFBundleIdentifier|CFBundleShortVersionString|MinimumOSVersion' || true
+          app=$(find /tmp/verify/Payload -maxdepth 1 -name '*.app' -type d -print -quit)
+          test -n "$app"
+          identifier=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")
+          build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")
+          test "$identifier" = "dev.sheltonsilas.UbuntuPad" || { echo "::error::Wrong app ID: $identifier"; exit 1; }
+          test "$version" = "0.2.1" && test "$build" = "2" || { echo "::error::Wrong update version: $version ($build)"; exit 1; }
+          plutil -p "$app/Info.plist" | egrep 'CFBundleIdentifier|CFBundleShortVersionString|CFBundleVersion|MinimumOSVersion'
           exe=$(plutil -extract CFBundleExecutable raw "$app/Info.plist")
-          lipo -info "$app/$exe"
-          if [ -f "$app/embedded.mobileprovision" ]; then
-            echo "::error::IPA unexpectedly contains a provisioning profile"
-            exit 1
-          fi
-          if codesign -dv "$app" 2>&1 | grep -q 'Authority=Apple'; then
-            echo "::error::IPA is Apple-signed; it must be unsigned"
+          lipo -verify_arch arm64 "$app/$exe"
+          test ! -f "$app/embedded.mobileprovision" || { echo '::error::Unexpected provisioning profile'; exit 1; }
+          if codesign -dv "$app" 2>&1 | grep -q 'Authority=Apple'; then echo '::error::Expected unsigned IPA'; exit 1; fi
+          if [ -d "$app/PlugIns" ] && find "$app/PlugIns" -maxdepth 1 -name '*.appex' -type d -print -quit | grep -q .; then
+            echo '::error::Unexpected app extension: it would need its own matching bundle identifier/signing'
             exit 1
           fi
           cp "$ipa" dist/UTM-unsigned.ipa
           shasum -a 256 dist/UTM-unsigned.ipa | tee dist/UTM-unsigned.ipa.sha256
+          ls -lh dist/UTM-unsigned.ipa dist/UTM-unsigned.ipa.sha256
+
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
@@ -288,7 +326,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          notes="UbuntuPad Track A unsigned iOS IPA built from UTM commit ${{ github.sha }}. Built by UbuntuPad CI (macOS $(sw_vers -productVersion), $(xcodebuild -version | head -n1)). Unsigned: no Apple account, certificate or provisioning profile was used."
+          notes="UbuntuPad Track A unsigned iOS IPA built from UTM commit ${{ github.sha }}. Bundle ID is dev.sheltonsilas.UbuntuPad (same install identity as the original UbuntuPad app); version 0.2.1 (2). Built by UbuntuPad CI. Unsigned: no Apple account, certificate or provisioning profile was used."
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "::error::Release $RELEASE_TAG already exists; refusing to replace a published release"
             exit 1
